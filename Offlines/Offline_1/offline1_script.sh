@@ -1,53 +1,55 @@
 #!/bin/bash
 
 # Check if any argument is passed. If yes then check if it is an integer
-(($# >= 1)) && { [[ $1 =~ ^[0-9]+$ ]] || { echo "Argument should be an integer" && exit 1; } }
-cd Submissions/ || { echo "\'Submissions/\' does not exist" && exit 1; }
+(($# > 2)) && { echo 'can not process more than two parameters' & exit 1; }
+(($# >= 1)) && { [[ $1 =~ ^[0-9]+$ ]] || { echo "Argument 1 should be a positive integer" & exit 1; } }
+(($# == 2)) && { (($2 >= 1 && $2 <= 9)) || { echo "Argument 2 should be an integer between 1 to 9" & exit 1; } }
+[ -d Submissions/ ] || { echo "Submissions/ does not exist. Please copy the shell file into the directory that contains Submissions" & exit 1; }
 
-maxMarks=100
-if (($# != 0)); then
-    maxMarks=$1
-fi
-studentIds=($(ls))
-obtainedMarks=()
+maxMarks=${1:-100}
+maxStudentId=${2:-5}
+start=1805121
+end=$((start + maxStudentId - 1))
+
 tempOutput="tempOutput.txt"
-acceptedOutput="../AcceptedOutput.txt"
-output="../output.csv"
+acceptedOutput="AcceptedOutput.txt"
+output="output.csv"
 
-touch ../$tempOutput
+touch $tempOutput
 echo "student_id,score" > $output
 
-for i in "${!studentIds[@]}"; do
+for ((i="$start"; i<="$end"; i++)); do
     # if the submission does not contain a file named <student_id.sh>
     # then s/he should obtain 0
-    script="${studentIds[$i]}"
-    script="$script/$script.sh"
-    [ -f "$script" ] || { obtainedMarks[$i]=0 && continue; }
-    obtainedMarks[$i]=$maxMarks
+    script="Submissions/$i/$i.sh"
+    # if the submission is not as described, give 0 and continue
+    [ -f "$script" ] || { echo "$i,0" >> $output & continue; }
+    obtainedMarks=$maxMarks
 
     # Grant execution permission if not exists
-    [ -x "$script" ] || chmod a-x "$script"
+    [ -x "$script" ] || chmod a+x "$script"
 
     # Initial marking
-    ./"$script" > ../$tempOutput
-    numberOfLeftAngles=$(diff --ignore-all-space $acceptedOutput ../$tempOutput | grep -o '<' | grep -c .)
-    numberOfRightAngles=$(diff --ignore-all-space $acceptedOutput ../$tempOutput | grep -o '>' | grep -c .)
-    obtainedMarks[$i]=$((obtainedMarks[i]-(numberOfLeftAngles+numberOfRightAngles)*5))
+    ./"$script" > $tempOutput
+    numberOfLeftAngles=$(diff --ignore-all-space $acceptedOutput $tempOutput | grep -o '^<' | grep -c .)
+    numberOfRightAngles=$(diff --ignore-all-space $acceptedOutput $tempOutput | grep -o '^>' | grep -c .)
+    obtainedMarks=$((obtainedMarks-(numberOfLeftAngles+numberOfRightAngles)*5))
     # obtained marks can't be negative before copy checker
-    ((obtainedMarks[i] < 0)) && obtainedMarks[$i]=0
+    ((obtainedMarks < 0)) && obtainedMarks=0
     
     # Copycheker
-    for othersFolder in "${studentIds[@]}"; do
+    for ((j="$start"; j<="$end"; j++)); do
         # Ignore if both files are the same
-        [ "$othersFolder" == "${studentIds[$i]}" ] && continue
+        ((i == j)) && continue
+        otherScript="Submissions/$j/$j.sh"
 
-        if diff "$script" "$othersFolder/$othersFolder.sh" &>/dev/null; then
-            obtainedMarks[$i]=-"${obtainedMarks[$i]}"
+        if diff "$script" "$otherScript" &>/dev/null; then
+            obtainedMarks=$((-obtainedMarks))
             continue
         fi
     done
     # output
-    echo "${studentIds[$i]},${obtainedMarks[$i]}" >> $output
+    echo "$i,$obtainedMarks" >> $output
 done
 
-cd .. && rm $tempOutput
+rm $tempOutput
