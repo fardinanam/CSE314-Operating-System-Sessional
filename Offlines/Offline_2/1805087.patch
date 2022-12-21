@@ -1,0 +1,548 @@
+diff --git a/Makefile b/Makefile
+index 39a99d7..f9159e3 100644
+--- a/Makefile
++++ b/Makefile
+@@ -128,6 +128,8 @@ UPROGS=\
+ 	$U/_rm\
+ 	$U/_sh\
+ 	$U/_stressfs\
++	$U/_sysinfotest\
++	$U/_trace\
+ 	$U/_usertests\
+ 	$U/_grind\
+ 	$U/_wc\
+diff --git a/README b/README
+index ed8bba5..f9a0b19 100644
+--- a/README
++++ b/README
+@@ -1,49 +1,92 @@
+-xv6 is a re-implementation of Dennis Ritchie's and Ken Thompson's Unix
+-Version 6 (v6).  xv6 loosely follows the structure and style of v6,
+-but is implemented for a modern RISC-V multiprocessor using ANSI C.
+-
+-ACKNOWLEDGMENTS
+-
+-xv6 is inspired by John Lions's Commentary on UNIX 6th Edition (Peer
+-to Peer Communications; ISBN: 1-57398-013-7; 1st edition (June 14,
+-2000)).  See also https://pdos.csail.mit.edu/6.1810/, which provides
+-pointers to on-line resources for v6.
+-
+-The following people have made contributions: Russ Cox (context switching,
+-locking), Cliff Frey (MP), Xiao Yu (MP), Nickolai Zeldovich, and Austin
+-Clements.
+-
+-We are also grateful for the bug reports and patches contributed by
+-Takahiro Aoyagi, Silas Boyd-Wickizer, Anton Burtsev, carlclone, Ian
+-Chen, Dan Cross, Cody Cutler, Mike CAT, Tej Chajed, Asami Doi,
+-eyalz800, Nelson Elhage, Saar Ettinger, Alice Ferrazzi, Nathaniel
+-Filardo, flespark, Peter Froehlich, Yakir Goaron, Shivam Handa, Matt
+-Harvey, Bryan Henry, jaichenhengjie, Jim Huang, Matúš Jókay, John
+-Jolly, Alexander Kapshuk, Anders Kaseorg, kehao95, Wolfgang Keller,
+-Jungwoo Kim, Jonathan Kimmitt, Eddie Kohler, Vadim Kolontsov, Austin
+-Liew, l0stman, Pavan Maddamsetti, Imbar Marinescu, Yandong Mao, Matan
+-Shabtay, Hitoshi Mitake, Carmi Merimovich, Mark Morrissey, mtasm, Joel
+-Nider, Hayato Ohhashi, OptimisticSide, Harry Porter, Greg Price, Jude
+-Rich, segfault, Ayan Shafqat, Eldar Sehayek, Yongming Shen, Fumiya
+-Shigemitsu, Cam Tenny, tyfkda, Warren Toomey, Stephen Tu, Rafael Ubal,
+-Amane Uehara, Pablo Ventura, Xi Wang, WaheedHafez, Keiichi Watanabe,
+-Nicolas Wolovick, wxdao, Grant Wu, Jindong Zhang, Icenowy Zheng,
+-ZhUyU1997, and Zou Chang Wei.
+-
+-
+-The code in the files that constitute xv6 is
+-Copyright 2006-2022 Frans Kaashoek, Robert Morris, and Russ Cox.
+-
+-ERROR REPORTS
+-
+-Please send errors and suggestions to Frans Kaashoek and Robert Morris
+-(kaashoek,rtm@mit.edu).  The main purpose of xv6 is as a teaching
+-operating system for MIT's 6.1810, so we are more interested in
+-simplifications and clarifications than new features.
+-
+-BUILDING AND RUNNING XV6
+-
+-You will need a RISC-V "newlib" tool chain from
+-https://github.com/riscv/riscv-gnu-toolchain, and qemu compiled for
+-riscv64-softmmu.  Once they are installed, and in your shell
+-search path, you can run "make qemu".
++# Working with xv6
++
++## Creating a new system call program
++
++1. Create a new file <new_system_call_name> in `user/` directory.
++    
++    The new file should contain the following:
++    ```c
++        #include "kernel/param.h"
++        #include "kernel/types.h"
++        #include "kernel/stat.h"
++        #include "user/user.h"
++        
++        int main(int argc, char *argv[]) {
++            // code
++            exit(exit_status);
++        }
++    ```
++    **For example, see the `user/trace.c` file**
++
++    `Note:` The file name should be as same as the command name that you want to use to execute the system call.
++
++4. Add the new system call command name to `user/Makefile` as follows:
++    ```makefile
++        UPROGS = \
++            ...
++            $U/_<new_command_name>\
++            ...
++    ``` 
++    **eg: `$U/_trace \`**
++    
++    This will allow the `make qemu` to enable the system call.
++
++    `Note:` The <new_command_name> part should be the same as the file name created in step 1.
++
++3. Add an entry to `user/usys.pl`.
++
++    ```c
++        entry("<new_system_call_name>");
++    ```
++
++    **eg: `entry("trace");`**
++    
++    This will route the system call into the kernel.
++
++    `Note:` The <new_system_call_name> part does not have to be the same as the file name created in step 1. But all the names stated in the following steps should be the same as this one.
++
++4. Add the prototype of the new system call in `user/user.h`.
++
++    **eg: `int trace(int);`**
++
++5. Define a system call number in `kernel/syscall.h` as follows:
++    ```c
++        #define SYS_<new_system_call_name> <new_system_call_number>
++    ```
++    **eg: `#define SYS_trace 22`**
++
++6. Define the system call function in `kernel/proc.c`
++    ```c
++        <return type>
++        <new_system_call_name>(<args>) {
++            // code
++        }
++    ```
++    **eg: see the `trace()` function in `kernel/proc.c`** 
++
++7. Open `kernel/sysproc.c` and add the handler function that will execute the system call which has just been defined in step 6.
++    ```c
++        <return type>
++        sys_<new_system_call_name>(void) {
++            // code
++        }
++    ```
++    **eg: see the `sys_trace()` function in `kernel/sysproc.c`**
++8. In `kernel/syscall.c`,
++    - extern the new system call handler function.
++
++        ```c
++            extern int sys_<new_system_call_name>(void);
++        ```
++
++        **eg: `extern int sys_trace(void);`**
++
++    - Add the new system call name to the `syscalls` array.
++    
++        ```c
++            [SYS_<new_system_call_name>] sys_<new_system_call_name>,
++        ```
++
++        **eg: `[SYS_trace] sys_trace,`**
++
++9. Make required changes in other functions and files as required.
+\ No newline at end of file
+diff --git a/kernel/defs.h b/kernel/defs.h
+index a3c962b..4e99b9f 100644
+--- a/kernel/defs.h
++++ b/kernel/defs.h
+@@ -63,6 +63,7 @@ void            ramdiskrw(struct buf*);
+ void*           kalloc(void);
+ void            kfree(void *);
+ void            kinit(void);
++int             freememcount(void);
+ 
+ // log.c
+ void            initlog(int, struct superblock*);
+@@ -106,6 +107,8 @@ void            yield(void);
+ int             either_copyout(int user_dst, uint64 dst, void *src, uint64 len);
+ int             either_copyin(void *dst, int user_src, uint64 src, uint64 len);
+ void            procdump(void);
++int             trace(int);
++int             sysinfo(void);
+ 
+ // swtch.S
+ void            swtch(struct context*, struct context*);
+diff --git a/kernel/kalloc.c b/kernel/kalloc.c
+index 0699e7e..d9fcf2e 100644
+--- a/kernel/kalloc.c
++++ b/kernel/kalloc.c
+@@ -80,3 +80,22 @@ kalloc(void)
+     memset((char*)r, 5, PGSIZE); // fill with junk
+   return (void*)r;
+ }
++
++// Counts and returns total free memory in bytes
++int 
++freememcount() {
++  struct run *r;
++  int freememcount = 0;
++
++  acquire(&kmem.lock);
++  r = kmem.freelist;
++
++  while(r) {
++    r = r->next;
++    freememcount += PGSIZE;
++  }
++
++  release(&kmem.lock);
++
++  return freememcount;
++}
+\ No newline at end of file
+diff --git a/kernel/proc.c b/kernel/proc.c
+index 959b778..c71ac36 100644
+--- a/kernel/proc.c
++++ b/kernel/proc.c
+@@ -124,6 +124,7 @@ allocproc(void)
+ found:
+   p->pid = allocpid();
+   p->state = USED;
++  p->traced_pid = 0;
+ 
+   // Allocate a trapframe page.
+   if((p->trapframe = (struct trapframe *)kalloc()) == 0){
+@@ -146,6 +147,9 @@ found:
+   p->context.ra = (uint64)forkret;
+   p->context.sp = p->kstack + PGSIZE;
+ 
++  // Initialize traced_pid to 0
++  // p->traced_pid = 0;
++
+   return p;
+ }
+ 
+@@ -681,3 +685,37 @@ procdump(void)
+     printf("\n");
+   }
+ }
++
++// Counts and returns the number of currently used processes
++int
++nproc(void) {
++  struct proc *p;
++  int nuproc = NPROC;
++
++  for (p = proc; p < &proc[NPROC]; p++) {
++    if (p->state == UNUSED)
++      nuproc--;
++  }
++
++  return nuproc;
++}
++
++
++// Traces the proces with the given pid in the command following the "trace" command
++// @pid : pid of the process to be traced
++// @return : 0 on success, -1 on error
++int
++trace(int pid) {
++  struct proc *p = myproc();
++  p->traced_pid = pid;
++  return 0;
++}
++
++// Prints total free memory and number of currently used processes
++int 
++sysinfo(void) {
++  printf("\nfree-memory: %d bytes\n", freememcount());
++  printf("n_proc\t: %d\n\n", nproc());
++  
++  return 0;
++}
+\ No newline at end of file
+diff --git a/kernel/proc.h b/kernel/proc.h
+index d021857..3faa9df 100644
+--- a/kernel/proc.h
++++ b/kernel/proc.h
+@@ -104,4 +104,5 @@ struct proc {
+   struct file *ofile[NOFILE];  // Open files
+   struct inode *cwd;           // Current directory
+   char name[16];               // Process name (debugging)
++  int traced_pid;              // Process ID of the process being traced
+ };
+diff --git a/kernel/syscall.c b/kernel/syscall.c
+index ed65409..640ade6 100644
+--- a/kernel/syscall.c
++++ b/kernel/syscall.c
+@@ -101,6 +101,8 @@ extern uint64 sys_unlink(void);
+ extern uint64 sys_link(void);
+ extern uint64 sys_mkdir(void);
+ extern uint64 sys_close(void);
++extern uint64 sys_trace(void);
++extern uint64 sys_sysinfo(void);
+ 
+ // An array mapping syscall numbers from syscall.h
+ // to the function that handles the system call.
+@@ -126,6 +128,34 @@ static uint64 (*syscalls[])(void) = {
+ [SYS_link]    sys_link,
+ [SYS_mkdir]   sys_mkdir,
+ [SYS_close]   sys_close,
++[SYS_trace]   sys_trace,
++[SYS_sysinfo] sys_sysinfo,
++};
++
++static char *sysnames[] = {
++[SYS_fork]    "fork",
++[SYS_exit]    "exit",
++[SYS_wait]    "wait",
++[SYS_pipe]    "pipe",
++[SYS_read]    "read",
++[SYS_kill]    "kill",
++[SYS_exec]    "exec",
++[SYS_fstat]   "fstat",
++[SYS_chdir]   "chdir",
++[SYS_dup]     "dup",
++[SYS_getpid]  "getpid",
++[SYS_sbrk]    "sbrk",
++[SYS_sleep]   "sleep",
++[SYS_uptime]  "uptime",
++[SYS_open]    "open",
++[SYS_write]   "write",
++[SYS_mknod]   "mknod",
++[SYS_unlink]  "unlink",
++[SYS_link]    "link",
++[SYS_mkdir]   "mkdir",
++[SYS_close]   "close",
++[SYS_trace]   "trace",
++[SYS_sysinfo] "sysinfo",
+ };
+ 
+ void
+@@ -138,7 +168,13 @@ syscall(void)
+   if(num > 0 && num < NELEM(syscalls) && syscalls[num]) {
+     // Use num to lookup the system call function for num, call it,
+     // and store its return value in p->trapframe->a0
+-    p->trapframe->a0 = syscalls[num]();
++    int returnValue = syscalls[num]();
++    p->trapframe->a0 = returnValue;
++
++    // Print the details of the traced process in the running process
++    if (num == p->traced_pid) {
++      printf("pid: %d, syscall: %s, return value: %d\n", sys_getpid(), sysnames[num], returnValue);
++    }
+   } else {
+     printf("%d %s: unknown sys call %d\n",
+             p->pid, p->name, num);
+diff --git a/kernel/syscall.h b/kernel/syscall.h
+index bc5f356..a776223 100644
+--- a/kernel/syscall.h
++++ b/kernel/syscall.h
+@@ -1,22 +1,24 @@
+ // System call numbers
+-#define SYS_fork    1
+-#define SYS_exit    2
+-#define SYS_wait    3
+-#define SYS_pipe    4
+-#define SYS_read    5
+-#define SYS_kill    6
+-#define SYS_exec    7
+-#define SYS_fstat   8
+-#define SYS_chdir   9
+-#define SYS_dup    10
+-#define SYS_getpid 11
+-#define SYS_sbrk   12
+-#define SYS_sleep  13
+-#define SYS_uptime 14
+-#define SYS_open   15
+-#define SYS_write  16
+-#define SYS_mknod  17
+-#define SYS_unlink 18
+-#define SYS_link   19
+-#define SYS_mkdir  20
+-#define SYS_close  21
++#define SYS_fork     1
++#define SYS_exit     2
++#define SYS_wait     3
++#define SYS_pipe     4
++#define SYS_read     5
++#define SYS_kill     6
++#define SYS_exec     7
++#define SYS_fstat    8
++#define SYS_chdir    9
++#define SYS_dup     10
++#define SYS_getpid  11
++#define SYS_sbrk    12
++#define SYS_sleep   13
++#define SYS_uptime  14
++#define SYS_open    15
++#define SYS_write   16
++#define SYS_mknod   17
++#define SYS_unlink  18
++#define SYS_link    19
++#define SYS_mkdir   20
++#define SYS_close   21
++#define SYS_trace   22
++#define SYS_sysinfo 23
+\ No newline at end of file
+diff --git a/kernel/sysproc.c b/kernel/sysproc.c
+index 1de184e..f14c4e1 100644
+--- a/kernel/sysproc.c
++++ b/kernel/sysproc.c
+@@ -89,3 +89,15 @@ sys_uptime(void)
+   release(&tickslock);
+   return xticks;
+ }
++
++uint64 
++sys_trace(void) {
++  int pid;
++  argint(0, &pid);
++  return trace(pid);
++}
++
++uint64
++sys_sysinfo(void) {
++  return sysinfo();
++}
+diff --git a/user/sysinfotest.c b/user/sysinfotest.c
+new file mode 100755
+index 0000000..25ade16
+--- /dev/null
++++ b/user/sysinfotest.c
+@@ -0,0 +1,72 @@
++#include "kernel/types.h"
++#include "kernel/riscv.h"
++#include "user/user.h"
++
++
++void
++sinfo() {
++  if (sysinfo() < 0) {
++    printf("FAIL: sysinfo failed");
++    exit(1);
++  }
++}
++
++
++void
++testmem() {
++  printf("\n\t\t\tTesting memory\n");
++  printf("\nInitial State\n");
++  sinfo();
++
++  printf("Using up one more page (4094 bytes).\nFreemem should reduce by that much!\n");
++  if((uint64)sbrk(PGSIZE) == 0xffffffffffffffff){
++    printf("sbrk failed");
++    exit(1);
++  }
++
++  sinfo();
++
++  printf("Giving back that one more page to the pool (4094 bytes).\nFreemem should go back to the initial value!\n");
++  
++  if((uint64)sbrk(-PGSIZE) == 0xffffffffffffffff){
++    printf("sbrk failed");
++    exit(1);
++  }
++
++  sinfo();
++}
++
++void testproc() {
++  int status;
++  int pid;
++
++  printf("\n\t\t\tTesting nproc\n");
++  printf("\nInitial State\n");
++  sinfo();
++
++  pid = fork();
++  if(pid < 0){
++    printf("sysinfotest: fork failed\n");
++    exit(1);
++  }
++  if(pid == 0){  // inside the child process
++    printf("Created one new process. So nproc should increase by 1.");
++    sinfo();
++    exit(0);
++  }
++
++  wait(&status); // wait for the created child process to end
++  printf("Created process ended. So nproc should go back to initial value.");
++  sinfo(); 
++}
++
++
++int
++main(int argc, char *argv[])
++{
++  printf("sysinfotest: start\n");
++  testmem();
++  testproc();
++  printf("sysinfotest: done\n");
++  exit(0);
++}
+diff --git a/user/trace.c b/user/trace.c
+new file mode 100755
+index 0000000..1e322ce
+--- /dev/null
++++ b/user/trace.c
+@@ -0,0 +1,27 @@
++#include "kernel/param.h"
++#include "kernel/types.h"
++#include "kernel/stat.h"
++#include "user/user.h"
++
++int
++main(int argc, char *argv[])
++{
++  int i;
++  char *nargv[MAXARG];
++
++  if(argc < 3 || (argv[1][0] < '0' || argv[1][0] > '9')){
++    fprintf(2, "Usage: %s sys_call_num command\n", argv[0]);
++    exit(1);
++  }
++
++  if (trace(atoi(argv[1])) < 0) {
++    fprintf(2, "%s: trace failed\n", argv[0]);
++    exit(1);
++  }
++  
++  for(i = 2; i < argc && i < MAXARG; i++){
++    nargv[i-2] = argv[i];
++  }
++  exec(nargv[0], nargv);
++  exit(0);
++}
+diff --git a/user/user.h b/user/user.h
+index 4d398d5..b8500b8 100644
+--- a/user/user.h
++++ b/user/user.h
+@@ -22,6 +22,8 @@ int getpid(void);
+ char* sbrk(int);
+ int sleep(int);
+ int uptime(void);
++int trace(int);
++int sysinfo(void);
+ 
+ // ulib.c
+ int stat(const char*, struct stat*);
+diff --git a/user/usys.pl b/user/usys.pl
+index 01e426e..bc109fd 100755
+--- a/user/usys.pl
++++ b/user/usys.pl
+@@ -36,3 +36,5 @@ entry("getpid");
+ entry("sbrk");
+ entry("sleep");
+ entry("uptime");
++entry("trace");
++entry("sysinfo");
