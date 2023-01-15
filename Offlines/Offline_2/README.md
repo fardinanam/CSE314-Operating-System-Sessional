@@ -1,14 +1,16 @@
 # Running the `.patch` file
 
-1. Download the xv6-riscv repository from [here](https://github.com/mit-pdos/xv6-riscv) or clone the repository as follows:
-    
-    ```bash
-        git clone https://github.com/mit-pdos/xv6-riscv.git
-    ```
-2. Download the `1805087.patch` file to the root directory of the repository.
-3. Run the following command to apply the patch:
-    
-    ```bash
-        git apply 1805087.patch
-    ```
-4. Also download the user files from `user files` folder and place them in the `user/` folder of the repository.
+## Instructions
+
+Clone a fresh copy of [xv6-riscv](https://github.com/mit-pdos/xv6-riscv.git) repository. Make sure that the commit version you are in is ` 581bc4cbd1f6f5c207e729b78fac4328aef01228`. Then add the `1805087.patch` file from this repository to the root of the cloned repository. Then run the following commands:
+
+```sh
+  git checkout 581bc4cbd1f6f5c207e729b78fac4328aef01228
+  git apply 1805087.patch
+```
+
+Run xv6 using the following command:
+
+```sh
+  make qemu
+```

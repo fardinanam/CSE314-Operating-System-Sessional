@@ -10,6 +10,14 @@ Here are some guidelines to make changes to the xv6-riscv repository.
 
 ## Working with xv6
 
+## Installing xv6 on linux machine
+
+1. Install `make`
+    ```bash
+        sudo apt install make
+    ```
+2. 
+
 ### Creating a new system call program
 
 1. Create a new file <new_system_call_name> in `user/` directory.
