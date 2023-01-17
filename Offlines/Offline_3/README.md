@@ -28,71 +28,160 @@ All tickets are reset only when tickets of all the `RUNNABLE` processes are used
 
 ```c
   void
-scheduler(void)
-{
-  struct proc *p;
-  struct cpu *c = mycpu();
+  scheduler(void)
+  {
+    struct proc *p;
+    struct cpu *c = mycpu();
 
-  c->proc = 0;
+    c->proc = 0;
 
-  for(;;){
-    // Avoid deadlock by ensuring that devices can interrupt.
-    intr_on();
+    for(;;){
+      // Avoid deadlock by ensuring that devices can interrupt.
+      intr_on();
 
-    // calculate total tickets
-    uint64 tickets_total = ticket_total_count();
+      // calculate total tickets
+      uint64 tickets_total = ticket_total_count();
 
-    // if all tickets are used, reset all tickets
-    if (!tickets_total) 
-      tickets_total = reset_tickets();
+      // if all tickets are used, reset all tickets
+      if (!tickets_total) 
+        tickets_total = reset_tickets();
 
-    // Choose a process to run.
-    uint64 draw = rand((uint64)tickets_total);
-    // printf("draw: %d\n", draw);
-    uint64 ticket_count = 0;
-    for(p = proc; p < &proc[NPROC]; p++) {
-      acquire(&p->lock);
+      // Choose a process to run.
+      uint64 draw = rand((uint64)tickets_total);
+      // printf("draw: %d\n", draw);
+      uint64 ticket_count = 0;
+      for(p = proc; p < &proc[NPROC]; p++) {
+        acquire(&p->lock);
 
-      if(p->state != RUNNABLE) {
-        release(&p->lock);
-        continue;
-      }
+        if(p->state != RUNNABLE) {
+          release(&p->lock);
+          continue;
+        }
 
-      ticket_count += p->tickets_current;
-      if (p->tickets_current == 0 ||
-          draw > ticket_count) {
-        release(&p->lock);
-        continue;
-      }
+        ticket_count += p->tickets_current;
+        if (p->tickets_current == 0 ||
+            draw > ticket_count) {
+          release(&p->lock);
+          continue;
+        }
 
 
-      if(p->state == RUNNABLE) {
-        // Decrease ticket count and increase time slice count
-        // for the chosen process
-        p->tickets_current--;
-        p->time_slices++;
+        if(p->state == RUNNABLE) {
+          // Decrease ticket count and increase time slice count
+          // for the chosen process
+          p->tickets_current--;
+          p->time_slices++;
 
-        // Switch to chosen process.  It is the process's job
-        // to release its lock and then reacquire it
-        // before jumping back to us.
-        p->state = RUNNING;
-        c->proc = p;
-        swtch(&c->context, &p->context);
+          // Switch to chosen process.  It is the process's job
+          // to release its lock and then reacquire it
+          // before jumping back to us.
+          p->state = RUNNING;
+          c->proc = p;
+          swtch(&c->context, &p->context);
 
-        // Process is done running for now.
-        // It should have changed its p->state before coming back.
-        c->proc = 0;
-        release(&p->lock);
-        break;
+          // Process is done running for now.
+          // It should have changed its p->state before coming back.
+          c->proc = 0;
+          release(&p->lock);
+          break;
+        }
       }
     }
   }
-}
 ```
 
+### `settickets`
+
+Following function needs to be added in `kernel/proc.c`:
+```c
+  // Sets the maximum number of tickets the process can have
+  // @param max_tickets the maximum number of tickets the process can have
+  // @return 0 on success, -1 on error
+  int
+  settickets(int tickets_max)
+  {
+    if(tickets_max < 1)
+      return -1;
+
+    struct proc *p = myproc();
+  
+    acquire(&p->lock);
+    p->tickets_max = tickets_max;
+    // printf("settickets: pid %d, tickets_max %d\n", p->pid, p->tickets_max);
+    release(&p->lock);
+
+    return 0;
+  }
+```
+Following function needs to be added in `kernel/sysproc.c`:
+```c
+  uint64
+  sys_settickets(void)
+  {
+    int tickets_max;
+    argint(0, &tickets_max);
+    return settickets(tickets_max);
+  }
+```
+
+### `getpinfo`
+Firstly a new struct named `pstat` is declared. It is better to declare it in a new file `kernel/param.h`: 
+```c
+  struct pstat {
+    int inuse[NPROC]; // whether this slot of the process table is in use (1 or 0)
+    int pid[NPROC]; // PID of each process
+    int tickets_max[NPROC]; // maximum tickets of each process
+    int tickets_current[NPROC]; // current tickets of each process
+    int time_slices[NPROC]; // number of time slices each process has run
+  };
+```
+Following function needs to be added in `kernel/proc.c`:
+```c
+  int
+  getpinfo(uint64 addr)
+  {
+    if (!addr) {
+      return -1;
+    }
+
+    struct proc *p;
+    struct pstat newpst;
+
+    int i = 0;
+    for (p = proc; p < &proc[NPROC]; p++) {
+      acquire(&p->lock);
+      if (p->state == UNUSED) {
+        newpst.inuse[i] = 0;
+      } else {
+        newpst.pid[i] = p->pid;
+        newpst.inuse[i] = 1;
+        newpst.tickets_max[i] = p->tickets_max;
+        newpst.tickets_current[i] = p->tickets_current;
+        newpst.time_slices[i] = p->time_slices;
+      }
+
+      release(&p->lock);
+      i++;
+    }
+
+    p = myproc();
+    copyout(p->pagetable, addr, (char *)&newpst, sizeof(newpst));
+
+    return 0;
+  }
+```
+Following function needs to be added in `kernel/sysproc.c`:
+```c
+  uint64
+  sys_getpinfo(void) 
+  {
+    uint64 pst; // user pointer to struct pstat
+    argaddr(0, &pst);
+    return getpinfo(pst);
+  }
+```
 ### `testticket`
 Takes one integer argument. Creates a new process with original tickets set to the argument.
-
 ```c
   #include "kernel/stat.h"
   #include "kernel/pstat.h"
