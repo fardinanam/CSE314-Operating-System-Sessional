@@ -13,10 +13,13 @@ Here are some guidelines to make changes to the xv6-riscv repository.
 ## Installing xv6 on linux machine
 
 1. Install `make`
-    ```bash
+    ```sh
         sudo apt install make
     ```
-2. 
+2. Install xv6 developer tools
+    ```sh
+        sudo apt-get install git build-essential gdb-multiarch qemu-system-misc gcc-riscv64-linux-gnu binutils-riscv64-linux-gnu 
+    ```
 
 ### Creating a new system call program
 
