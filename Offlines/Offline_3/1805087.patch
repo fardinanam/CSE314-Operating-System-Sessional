@@ -31,7 +31,7 @@ index 39a99d7..4c038a7 100644
  
  QEMUOPTS = -machine virt -bios none -kernel $K/kernel -m 128M -smp $(CPUS) -nographic
 diff --git a/kernel/defs.h b/kernel/defs.h
-index a3c962b..4aef7eb 100644
+index a3c962b..33c4412 100644
 --- a/kernel/defs.h
 +++ b/kernel/defs.h
 @@ -4,6 +4,7 @@ struct file;
@@ -48,7 +48,7 @@ index a3c962b..4aef7eb 100644
  
 +// rand.c
 +void            srand(unsigned int);
-+double          rand(void);
++uint64          rand(uint64);
 +
  // ramdisk.c
  void            ramdiskinit(void);
@@ -63,7 +63,7 @@ index a3c962b..4aef7eb 100644
  // swtch.S
  void            swtch(struct context*, struct context*);
 diff --git a/kernel/proc.c b/kernel/proc.c
-index 959b778..eba531b 100644
+index 959b778..ce7ace7 100644
 --- a/kernel/proc.c
 +++ b/kernel/proc.c
 @@ -5,6 +5,7 @@
@@ -74,23 +74,33 @@ index 959b778..eba531b 100644
  
  struct cpu cpus[NCPU];
  
-@@ -320,6 +321,11 @@ fork(void)
+@@ -124,6 +125,8 @@ allocproc(void)
+ found:
+   p->pid = allocpid();
+   p->state = USED;
++  // initialize tickets to 1
++  proc->tickets_current = proc->tickets_max = 1;
+ 
+   // Allocate a trapframe page.
+   if((p->trapframe = (struct trapframe *)kalloc()) == 0){
+@@ -320,6 +323,12 @@ fork(void)
  
    acquire(&np->lock);
    np->state = RUNNABLE;
 +  
 +  // allocate tickets to child process
++  acquire(&p->lock);
 +  np->tickets_max = np->tickets_current = p->tickets_max;
 +  np->time_slices = 0;
-+
++  release(&p->lock);
    release(&np->lock);
  
    return pid;
-@@ -434,6 +440,36 @@ wait(uint64 addr)
+@@ -434,6 +443,36 @@ wait(uint64 addr)
    }
  }
  
-+int
++uint64
 +ticket_total_count() 
 +{
 +  int total = 0;
@@ -104,10 +114,10 @@ index 959b778..eba531b 100644
 +  return total;
 +}
 +
-+int 
++uint64 
 +reset_tickets() 
 +{
-+  int total = 0;
++  uint64 total = 0;
 +  for (struct proc *p = proc; p < &proc[NPROC]; p++) {
 +    acquire(&p->lock);
 +    if (p->state == RUNNABLE) {
@@ -123,7 +133,7 @@ index 959b778..eba531b 100644
  // Per-CPU process scheduler.
  // Each CPU calls scheduler() after setting itself up.
  // Scheduler never returns.  It loops, doing:
-@@ -446,15 +482,51 @@ scheduler(void)
+@@ -446,15 +485,46 @@ scheduler(void)
  {
    struct proc *p;
    struct cpu *c = mycpu();
@@ -131,26 +141,21 @@ index 959b778..eba531b 100644
 +
    c->proc = 0;
 +
-+  // initialize tickets to 1
-+  acquire(&proc->lock);
-+  proc->tickets_current = proc->tickets_max = 1;
-+  release(&proc->lock);
-+
    for(;;){
      // Avoid deadlock by ensuring that devices can interrupt.
      intr_on();
  
 +    // calculate total tickets
-+    int tickets_total = ticket_total_count();
++    uint64 tickets_total = ticket_total_count();
 +
 +    // if all tickets are used, reset all tickets
 +    if (!tickets_total) 
 +      tickets_total = reset_tickets();
 +
 +    // Choose a process to run.
-+    int draw = rand() * tickets_total;
++    uint64 draw = rand((uint64)tickets_total);
 +    // printf("draw: %d\n", draw);
-+    int ticket_count = 0;
++    uint64 ticket_count = 0;
      for(p = proc; p < &proc[NPROC]; p++) {
        acquire(&p->lock);
 +
@@ -161,7 +166,7 @@ index 959b778..eba531b 100644
 +
 +      ticket_count += p->tickets_current;
 +      if (p->tickets_current == 0 ||
-+          draw >= ticket_count) {
++          draw > ticket_count) {
 +        release(&p->lock);
 +        continue;
 +      }
@@ -176,7 +181,7 @@ index 959b778..eba531b 100644
          // Switch to chosen process.  It is the process's job
          // to release its lock and then reacquire it
          // before jumping back to us.
-@@ -465,8 +537,9 @@ scheduler(void)
+@@ -465,8 +535,9 @@ scheduler(void)
          // Process is done running for now.
          // It should have changed its p->state before coming back.
          c->proc = 0;
@@ -187,7 +192,7 @@ index 959b778..eba531b 100644
      }
    }
  }
-@@ -681,3 +754,55 @@ procdump(void)
+@@ -681,3 +752,55 @@ procdump(void)
      printf("\n");
    }
  }
@@ -282,23 +287,25 @@ index 0000000..44b6ebf
 \ No newline at end of file
 diff --git a/kernel/rand.c b/kernel/rand.c
 new file mode 100644
-index 0000000..2a934eb
+index 0000000..73ba7f7
 --- /dev/null
 +++ b/kernel/rand.c
-@@ -0,0 +1,14 @@
-+volatile unsigned int seed = 1;
+@@ -0,0 +1,16 @@
++#include "types.h"
++
++volatile uint64 seed = 1;
 +
 +// Sets the seed for the random number generator.
-+void srand(unsigned int s) 
++void srand(uint64 s) 
 +{ 
 +  seed = s; 
 +}
 +
 +// @returns a random number between 0 and 1.
-+double rand() {
++uint64 rand(uint64 range) {
 +  seed++;
-+  unsigned a = seed * 15485863;
-+  return (double)(a * a * a % 2038074743) / 2038074743;
++  uint64 a = seed * 15485863;
++  return ((a * a * a % 2038074743) * range) / 2038074743;
 +}
 \ No newline at end of file
 diff --git a/kernel/syscall.c b/kernel/syscall.c

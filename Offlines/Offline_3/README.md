@@ -28,71 +28,66 @@ All tickets are reset only when tickets of all the `RUNNABLE` processes are used
 
 ```c
   void
-  scheduler(void)
-  {
-    struct proc *p;
-    struct cpu *c = mycpu();
+scheduler(void)
+{
+  struct proc *p;
+  struct cpu *c = mycpu();
 
-    c->proc = 0;
+  c->proc = 0;
 
-    // initialize tickets to 1
-    acquire(&proc->lock);
-    proc->tickets_current = proc->tickets_max = 1;
-    release(&proc->lock);
+  for(;;){
+    // Avoid deadlock by ensuring that devices can interrupt.
+    intr_on();
 
-    for(;;){
-      // Avoid deadlock by ensuring that devices can interrupt.
-      intr_on();
+    // calculate total tickets
+    uint64 tickets_total = ticket_total_count();
 
-      // calculate total tickets
-      int tickets_total = ticket_total_count();
+    // if all tickets are used, reset all tickets
+    if (!tickets_total) 
+      tickets_total = reset_tickets();
 
-      // if all tickets are used, reset all tickets
-      if (!tickets_total) 
-        tickets_total = reset_tickets();
+    // Choose a process to run.
+    uint64 draw = rand((uint64)tickets_total);
+    // printf("draw: %d\n", draw);
+    uint64 ticket_count = 0;
+    for(p = proc; p < &proc[NPROC]; p++) {
+      acquire(&p->lock);
 
-      // Choose a process to run.
-      int draw = rand() * tickets_total;
-      // printf("draw: %d\n", draw);
-      int ticket_count = 0;
-      for(p = proc; p < &proc[NPROC]; p++) {
-        acquire(&p->lock);
+      if(p->state != RUNNABLE) {
+        release(&p->lock);
+        continue;
+      }
 
-        if(p->state != RUNNABLE) {
-          release(&p->lock);
-          continue;
-        }
-
-        ticket_count += p->tickets_current;
-        if (p->tickets_current == 0 ||
-            draw >= ticket_count) {
-          release(&p->lock);
-          continue;
-        }
+      ticket_count += p->tickets_current;
+      if (p->tickets_current == 0 ||
+          draw > ticket_count) {
+        release(&p->lock);
+        continue;
+      }
 
 
-        if(p->state == RUNNABLE) {
-          // Decrease ticket count and increase time slice count
-          // for the chosen process
-          p->tickets_current--;
-          p->time_slices++;
+      if(p->state == RUNNABLE) {
+        // Decrease ticket count and increase time slice count
+        // for the chosen process
+        p->tickets_current--;
+        p->time_slices++;
 
-          // Switch to chosen process.  It is the process's job
-          // to release its lock and then reacquire it
-          // before jumping back to us.
-          p->state = RUNNING;
-          c->proc = p;
-          swtch(&c->context, &p->context);
+        // Switch to chosen process.  It is the process's job
+        // to release its lock and then reacquire it
+        // before jumping back to us.
+        p->state = RUNNING;
+        c->proc = p;
+        swtch(&c->context, &p->context);
 
-          // Process is done running for now.
-          // It should have changed its p->state before coming back.
-          c->proc = 0;
-          release(&p->lock);
-          break;
-        }
+        // Process is done running for now.
+        // It should have changed its p->state before coming back.
+        c->proc = 0;
+        release(&p->lock);
+        break;
       }
     }
   }
+}
 ```
 
 ### `testticket`
