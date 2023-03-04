@@ -2,7 +2,7 @@
 
 This repository contains all the practice problems and assignments that I have worked on for the course CSE314 - Operating Systems - Sessional offered in CSE-BUET. 
 
-The main codebase for the changes we have done in xv6-riscv throughout the semester can be found [here](https://github.com/fardinanam/xv6-riscv).
+Only the patch files are included in this repository for the assignments related to xv6-riscv. Guidelines for using those patch files are given in individual assignment folders.
 
 Here are some guidelines to make changes to the xv6-riscv repository.
 
